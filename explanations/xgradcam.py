@@ -81,12 +81,5 @@ def save_and_display_gradcam(img_path, heatmap, cam_path="cam.jpg", alpha=0.4):
     # Superimpose the heatmap on original image
     superimposed_img = jet_heatmap * alpha + img
     superimposed_img = keras.preprocessing.image.array_to_img(superimposed_img)
-
-
-    # Save the superimposed image
-#     superimposed_img.save(cam_path)
-    
-    # Display Grad CAM
-#     display((cam_path))
     
     return superimposed_img

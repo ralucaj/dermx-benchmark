@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, recall_score
+from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, recall_score, cohen_kappa_score
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -64,8 +64,8 @@ def create_diagnosis_df(evals):
     diagnosis_df = diagnosis_df.rename(columns=rename_dict)
     diagnosis_df['discard'] = diagnosis_df[['other_disease', 'low_quality']].max(axis=1)
     diagnosis_df = diagnosis_df.drop(columns=['other_disease', 'low_quality'])
-    # Drop empty evaluations
-    diagnosis_df = diagnosis_df.loc[(diagnosis_df.sum(axis=1) != 0)]
+    # Turn empty evaluations into discards
+    diagnosis_df.loc[diagnosis_df.sum(axis=1) == 0, 'discard'] = 1
     # Name the index columns
     diagnosis_df.index = diagnosis_df.index.rename(['image_id', 'labeller_id'])
     return diagnosis_df
@@ -158,7 +158,17 @@ def create_characteristics_df(evals):
     return characteristics_df
 
 
-def get_labeller_gt_performance(diagnosis_df, gt_df):
+def get_overall_diagnosis_accuracy(diagnosis_df, ground_truth_df):
+    gt_diagnoses_df = diagnosis_df.astype(int).idxmax(axis=1).sort_index().reset_index().set_index('image_id')
+    ground_truth_df = ground_truth_df.reset_index().rename(columns={"current_filename": "Image", "diagnosis": "Class"})
+    ground_truth_df["Image"] = ground_truth_df["Image"].apply(lambda x: x.split('.')[0] +'.json')
+    ground_truth_df = ground_truth_df.set_index("Image")[['Class']]
+    ground_truth_df["Class"] = ground_truth_df["Class"].apply(lambda x: x.lower().replace(' ', '_'))
+    gt_diagnoses_df = gt_diagnoses_df.merge(ground_truth_df, left_index=True, right_index=True)
+    return accuracy_score(gt_diagnoses_df['Class'].values, gt_diagnoses_df[0].values)
+
+
+def get_disease_gt_performance(diagnosis_df, gt_df):
     """
     Get per-class labeller performance with regards to the ground truth. Expects diagnosis_df and gt_df to have the same
     image_ids. Returns the F1, recall, and specificity.
@@ -171,6 +181,7 @@ def get_labeller_gt_performance(diagnosis_df, gt_df):
     ground_truth_df["Image"] = ground_truth_df["Image"].apply(lambda x: x.split('.')[0] +'.json')
     ground_truth_df = ground_truth_df.set_index("Image")[['Class']]
     ground_truth_df["Class"] = ground_truth_df["Class"].apply(lambda x: x.lower().replace(' ', '_'))
+
     gt_diagnoses_df = diagnosis_df.astype(int).idxmax(axis=1).sort_index().reset_index().set_index('image_id')
     diseases = diagnosis_df.columns
     labellers = diagnosis_df.reset_index().labeller_id.unique()
@@ -179,6 +190,7 @@ def get_labeller_gt_performance(diagnosis_df, gt_df):
         'f1': {},
         'recall': {},
         'specificity': {},
+        'avg_selection': {}
     }
 
     for disease in diseases:
@@ -186,6 +198,7 @@ def get_labeller_gt_performance(diagnosis_df, gt_df):
         recalls = []
         specificities = []
         accuracies = []
+        selections = []
 
         for labeller in labellers:
             labeller_diagnoses = gt_diagnoses_df[gt_diagnoses_df['labeller_id'] == labeller][0]
@@ -197,6 +210,7 @@ def get_labeller_gt_performance(diagnosis_df, gt_df):
             f1s.append(f1_score(gt_diagnoses, labeller_diagnoses, pos_label=True, average='binary'))
             recalls.append(recall_score(gt_diagnoses, labeller_diagnoses, pos_label=True, average='binary'))
             specificities.append(specificity(gt_diagnoses, labeller_diagnoses))
+            selections.append(len(labeller_diagnoses[labeller_diagnoses == True]))
 
         metrics_dict['accuracy'][
             disease] = f'\${np.round(np.mean(accuracies), decimals=2)} \pm {np.round(np.std(accuracies), decimals=2)}\$'
@@ -206,6 +220,8 @@ def get_labeller_gt_performance(diagnosis_df, gt_df):
             disease] = f'\${np.round(np.mean(recalls), decimals=2)} \pm {np.round(np.std(recalls), decimals=2)}\$'
         metrics_dict['specificity'][
             disease] = f'\${np.round(np.mean(specificities), decimals=2)} \pm {np.round(np.std(specificities), decimals=2)}\$'
+        metrics_dict['avg_selection'][
+            disease] = f'\${np.round(np.mean(selections), decimals=2)} \pm {np.round(np.std(selections), decimals=2)}\$'
 
     return pd.DataFrame.from_dict(metrics_dict)
 
@@ -277,7 +293,7 @@ def get_count_by_source(diagnoses_df, ground_truth_df):
     return ground_truth_df.groupby(['Class', 'dataset']).count()
 
 
-def get_inter_rater_agreement(diagnoses_df):
+def get_dx_inter_rater_agreement(diagnoses_df):
     gt_diagnoses_df = diagnoses_df.astype(int).idxmax(axis=1).sort_index().reset_index().set_index('image_id')
     diseases = diagnoses_df.columns
     labellers = diagnoses_df.reset_index().labeller_id.unique()
@@ -286,6 +302,7 @@ def get_inter_rater_agreement(diagnoses_df):
         'f1': {},
         'recall': {},
         'specificity': {},
+        'cohen_kappa': {}
     }
 
     for disease in diseases:
@@ -293,6 +310,7 @@ def get_inter_rater_agreement(diagnoses_df):
         f1s = []
         recalls = []
         specificities = []
+        kappas = []
 
         for labeller in labellers:
             for labeller2 in labellers:
@@ -310,6 +328,7 @@ def get_inter_rater_agreement(diagnoses_df):
                     f1s.append(f1_score(labeller2_diagnoses, labeller_diagnoses, pos_label=True, average='binary'))
                     recalls.append(recall_score(labeller2_diagnoses, labeller_diagnoses, pos_label=True, average='binary'))
                     specificities.append(specificity(labeller2_diagnoses, labeller_diagnoses))
+                    kappas.append(cohen_kappa_score(labeller2_diagnoses, labeller_diagnoses))
 
         metrics_dict['accuracy'][disease] = f'\${np.round(np.mean(accuracies), decimals=2)} \pm {np.round(np.std(accuracies), decimals=2)}\$'
         metrics_dict['f1'][
@@ -318,6 +337,8 @@ def get_inter_rater_agreement(diagnoses_df):
             disease] = f'\${np.round(np.mean(recalls), decimals=2)} \pm {np.round(np.std(recalls), decimals=2)}\$'
         metrics_dict['specificity'][
             disease] = f'\${np.round(np.mean(specificities), decimals=2)} \pm {np.round(np.std(specificities), decimals=2)}\$'
+        metrics_dict['cohen_kappa'][
+            disease] = f'\${np.round(np.mean(kappas), decimals=2)} \pm {np.round(np.std(kappas), decimals=2)}\$'
 
     return pd.DataFrame.from_dict(metrics_dict)
 
@@ -349,26 +370,24 @@ def get_gt_labeller_performance(diagnoses_df, ground_truth_path):
 def get_characteristics_inter_rater_agreement(characteristics_df):
     characteristics = characteristics_df.columns.tolist()
     labellers = characteristics_df.reset_index().labeller_id.unique()
-    gt_characteristics_df = characteristics_df.reset_index().set_index('image_id')
+    gt_characteristics_df = characteristics_df.reset_index().set_index('image_id').fillna(False)
 
     metrics_dict = {
         'accuracy': {},
         'f1': {},
         'recall': {},
         'specificity': {},
-        'evaluations': {},
-        'images': {},
+        'cohen_kappa': {},
+        'avg_selection': {}
     }
 
     for characteristic in characteristics:
-        metrics_dict['images'][characteristic] = len(
-            characteristics_df[characteristics_df[characteristic] == True].groupby('image_id').count())
-        metrics_dict['evaluations'][characteristic] = characteristics_df[characteristic].sum()
-
         accuracies = []
         f1s = []
         recalls = []
         specificities = []
+        kappas = []
+        selections = []
 
         for labeller in labellers:
             for labeller2 in labellers:
@@ -389,6 +408,10 @@ def get_characteristics_inter_rater_agreement(characteristics_df):
                     recalls.append(
                         recall_score(labeller2_characteristics, labeller_characteristics, pos_label=True, average='binary'))
                     specificities.append(specificity(labeller2_characteristics, labeller_characteristics))
+                    kappas.append(cohen_kappa_score(labeller2_characteristics, labeller_characteristics))
+
+            labeller_characteristic_df = gt_characteristics_df[(gt_characteristics_df['labeller_id'] == labeller) & (gt_characteristics_df[characteristic] == True)]
+            selections.append(len(labeller_characteristic_df))
 
         metrics_dict['accuracy'][characteristic] = f'\${np.round(np.mean(accuracies), decimals=2)} \pm {np.round(np.std(accuracies), decimals=2)}\$'
         metrics_dict['f1'][
@@ -396,7 +419,10 @@ def get_characteristics_inter_rater_agreement(characteristics_df):
         metrics_dict['recall'][
             characteristic] = f'\${np.round(np.mean(recalls), decimals=2)} \pm {np.round(np.std(recalls), decimals=2)}\$'
         metrics_dict['specificity'][
-            characteristic] = f'\${np.round(np.mean(specificities), decimals=2)} \pm {np.round(np.std(specificities), decimals=2)}\$'
+            characteristic] = f'\${np.round(np.nanmean(specificities), decimals=2)} \pm {np.round(np.nanstd(specificities), decimals=2)}\$'
+        metrics_dict['avg_selection'][
+            characteristic] = f'\${np.round(np.mean(selections), decimals=2)} \pm {np.round(np.std(selections), decimals=2)}\$'
+        metrics_dict['cohen_kappa'][characteristic] = f'\${np.round(np.nanmean(kappas), decimals=2)} \pm {np.round(np.nanstd(kappas), decimals=2)}\$'
 
     return pd.DataFrame.from_dict(metrics_dict)
 
@@ -420,6 +446,13 @@ def get_masks_info(masks_metadata_path):
 
 
 def get_mask_paired_interrater_agreement(masks_path, masks_metadata_path, valid_image_ids):
+    """
+    Only look at the pairs where both agreed. 3
+    :param masks_path:
+    :param masks_metadata_path:
+    :param valid_image_ids:
+    :return:
+    """
     # Exclude discarded images
     images = get_valid_masks(masks_path, valid_image_ids)
     image_ids = set([image.split('_')[1] for image in images])

@@ -36,7 +36,6 @@ def create_diagnosis_df(evals):
     rename_dict = {
         'disease_Acne': 'acne',
         'disease_Actinic keratosis': 'actinic_keratosis',
-        'disease_Low-quality': 'low_quality',
         'disease_Other-disease': 'other_disease',
         'disease_Psoriasis': 'psoriasis',
         'disease_Seborrheic dermatitis': 'seborrheic_dermatitis',
@@ -51,10 +50,9 @@ def create_diagnosis_df(evals):
             annotation['name']
             for annotation in evaluation["annotations"]
             if annotation['name']
-               in ['Acne', 'Actinic keratosis', 'Psoriasis', 'Seborrheic dermatitis', 'Viral warts', 'Vitiligo',
-                   'Other-disease', 'Low-quality']
+               in ['Acne', 'Actinic keratosis', 'Other-disease', 'Psoriasis', 'Seborrheic dermatitis', 'Viral warts', 'Vitiligo']
         ]
-        if len(selected_diagnosis) == 1:
+        if len(selected_diagnosis) > 0:
             diagnosis_dict[(image_id, labeller)]['disease'] = selected_diagnosis[0]
         else:
             diagnosis_dict[(image_id, labeller)]['disease'] = np.nan
@@ -62,10 +60,6 @@ def create_diagnosis_df(evals):
     diagnosis_df = pd.DataFrame.from_dict(diagnosis_dict, orient='index')
     diagnosis_df = pd.get_dummies(diagnosis_df, prefix=None)
     diagnosis_df = diagnosis_df.rename(columns=rename_dict)
-    diagnosis_df['discard'] = diagnosis_df[['other_disease', 'low_quality']].max(axis=1)
-    diagnosis_df = diagnosis_df.drop(columns=['other_disease', 'low_quality'])
-    # Turn empty evaluations into discards
-    diagnosis_df.loc[diagnosis_df.sum(axis=1) == 0, 'discard'] = 1
     # Name the index columns
     diagnosis_df.index = diagnosis_df.index.rename(['image_id', 'labeller_id'])
     return diagnosis_df
@@ -378,7 +372,8 @@ def get_characteristics_inter_rater_agreement(characteristics_df):
         'recall': {},
         'specificity': {},
         'cohen_kappa': {},
-        'avg_selection': {}
+        'avg_selection': {},
+        'selection': {}
     }
 
     for characteristic in characteristics:
@@ -423,8 +418,9 @@ def get_characteristics_inter_rater_agreement(characteristics_df):
         metrics_dict['avg_selection'][
             characteristic] = f'\${np.round(np.mean(selections), decimals=2)} \pm {np.round(np.std(selections), decimals=2)}\$'
         metrics_dict['cohen_kappa'][characteristic] = f'\${np.round(np.nanmean(kappas), decimals=2)} \pm {np.round(np.nanstd(kappas), decimals=2)}\$'
+        metrics_dict['selection'][characteristic] = np.sum(selections)
 
-    return pd.DataFrame.from_dict(metrics_dict)
+    return pd.DataFrame.from_dict(metrics_dict).sort_values(by=['selection'], ascending=False).drop(columns=['selection'])
 
 
 def get_valid_masks(masks_path, image_ids):

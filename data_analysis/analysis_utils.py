@@ -434,16 +434,26 @@ def get_valid_masks(masks_path, image_ids):
     return valid_masks
 
 
-def get_masks_info(masks_metadata_path):
-    masks_info_df = pd.read_csv(masks_metadata_path)
-    masks_info_df[['labeller', 'image', 'characteristic', 'empty']] = masks_info_df.mask_id.str.split('_', expand=True)
-    masks_info_df = masks_info_df.drop(columns=['empty'])
-    return masks_info_df
-
-
-def get_mask_paired_interrater_agreement(masks_path, masks_metadata_path, valid_image_ids):
+def get_masks_df(masks_path):
     """
-    Only look at the pairs where both agreed. 3
+    Create a dataframe linking each mask path with a labeller, an image, and a characteristic.
+    :param masks_path:
+    :return:
+    """
+    masks = os.listdir(masks_path)
+    masks_dict = {'labeller_id': [], 'image_id': [], 'characteristic': [], 'mask_id': []}
+    for mask in masks:
+        labeller_id, image_id, characteristic = mask[:-4].split('_')
+        masks_dict['labeller_id'].append(labeller_id)
+        masks_dict['image_id'].append(image_id)
+        masks_dict['characteristic'].append(characteristic)
+        masks_dict['mask_id'].append(mask)
+    return pd.DataFrame.from_dict(masks_dict)
+
+
+def get_mask_paired_interrater_agreement(masks_path, valid_image_ids):
+    """
+    Only look at the pairs where both agreed.
     :param masks_path:
     :param masks_metadata_path:
     :param valid_image_ids:
@@ -452,27 +462,27 @@ def get_mask_paired_interrater_agreement(masks_path, masks_metadata_path, valid_
     # Exclude discarded images
     images = get_valid_masks(masks_path, valid_image_ids)
     image_ids = set([image.split('_')[1] for image in images])
-    masks_info_df = get_masks_info(masks_metadata_path)
+    masks_info_df = get_masks_df(masks_path)
 
     metrics_dict = {}
 
     for image in image_ids:
         # Find all characteristics and labellers
-        image_info_df = masks_info_df[masks_info_df['image'] == image]
+        image_info_df = masks_info_df[masks_info_df['image_id'] == image]
 
-        for characteristic in image_info_df.class_name.unique():
+        for characteristic in image_info_df['characteristic'].unique():
             # Get all labellers that outlined this characteristic
-            image_char_info_df = image_info_df[image_info_df.class_name == characteristic]
+            image_char_info_df = image_info_df[image_info_df['characteristic'] == characteristic]
 
-            for labeller in image_char_info_df.labeller.unique():
-                for labeller_ref in image_char_info_df.labeller.unique():
+            for labeller in image_char_info_df['labeller_id'].unique():
+                for labeller_ref in image_char_info_df['labeller_id'].unique():
                     if labeller != labeller_ref:
                         try:
                             # Get each labeller's characteristic segmentation file path
                             segmentation_path = \
-                            image_char_info_df[image_char_info_df.labeller == labeller].mask_id.values[0] + '.png'
+                                image_char_info_df[image_char_info_df['labeller_id'] == labeller].mask_id.values[0]
                             ref_segmentation_path = \
-                            image_char_info_df[image_char_info_df.labeller == labeller_ref].mask_id.values[0] + '.png'
+                                image_char_info_df[image_char_info_df['labeller_id'] == labeller_ref].mask_id.values[0]
 
                             segmentation = plt.imread(str(Path(masks_path) / segmentation_path))
                             ref_segmentation = plt.imread(str(Path(masks_path) / ref_segmentation_path))
@@ -486,27 +496,25 @@ def get_mask_paired_interrater_agreement(masks_path, masks_metadata_path, valid_
 
                             metrics_dict[(image, characteristic, labeller, labeller_ref)]['f1'] = pixel_metrics['iou']
                             metrics_dict[(image, characteristic, labeller, labeller_ref)]['sensitivity'] = \
-                            pixel_metrics['recall']
+                                pixel_metrics['recall']
                             metrics_dict[(image, characteristic, labeller, labeller_ref)]['specificity'] = \
-                            pixel_metrics['specificity']
+                                pixel_metrics['specificity']
                         except FileNotFoundError:
                             print(segmentation_path, ref_segmentation_path, 'not found')
     return pd.DataFrame.from_dict(metrics_dict, orient='index')
 
 
-def get_mask_interrater_agreement(masks_path, masks_metadata_path, valid_image_ids):
+def get_mask_interrater_agreement(masks_path, valid_image_ids):
     if not os.path.isfile('./mask_paired_interrater_df.csv'):
-        paired_df = get_mask_paired_interrater_agreement(masks_path, masks_metadata_path, valid_image_ids)
+        paired_df = get_mask_paired_interrater_agreement(masks_path, valid_image_ids)
         paired_df.to_csv('mask_paired_interrater_df.csv')
-    else:
-        paired_df = pd.read_csv('mask_paired_interrater_df.csv')
+    paired_df = pd.read_csv('mask_paired_interrater_df.csv')
     paired_df = paired_df.rename(columns={
         'Unnamed: 0': 'image_id',
         'Unnamed: 1': 'characteristic',
         'Unnamed: 2': 'labeller',
         'Unnamed: 3': 'labeller_ref',
     })
-
     characteristics = paired_df['characteristic'].unique().tolist()
 
     metrics_dict = {

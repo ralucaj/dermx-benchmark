@@ -52,7 +52,7 @@ def unfreeze_layers(model, last_fixed_layer):
     return model
 
 
-def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, batch_size, preprocessing_function, base_path):
+def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, batch_size, preprocessing_function, base_path, data_path):
     model_name = f'{model_base_name}_r{rotation}_s{shear}_z{zoom}_b{brightness}_lr{lr}_l{last_fixed_layer}'
     if os.path.exists(Path(base_path) / (model_name + '.h5')):
         print(f'{model_name} already trained')
@@ -70,7 +70,7 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
         preprocessing_function=preprocessing_function,
     )
     train_iterator = train_generator.flow_from_directory(
-        '/home/ubuntu/store/internal-neurips/hpo/train',
+        Path(data_path) / 'train',
         target_size=(400, 300),
         class_mode='categorical',
         batch_size=batch_size,
@@ -83,7 +83,7 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
         preprocessing_function=resnet_preprocessing
     )
     valid_iterator = valid_generator.flow_from_directory(
-        '/home/ubuntu/store/internal-neurips/hpo/valid',
+        Path(data_path) / 'valid',
         batch_size=batch_size,
         target_size=(400, 300),
         class_mode='categorical',
@@ -140,7 +140,7 @@ def get_efficientnet_model():
     return Model(model.input, outputs, name="EfficientNetB0")
 
 
-def validate_model(base_path, model_name, preprocessing_function):
+def validate_model(base_path, model_name, preprocessing_function, data_path):
     if os.path.exists(Path(base_path) / (model_name + '_preds.csv')):
         print(f'{model_name} already validated')
         return
@@ -151,7 +151,7 @@ def validate_model(base_path, model_name, preprocessing_function):
         preprocessing_function=preprocessing_function
     )
     valid_iterator = valid_generator.flow_from_directory(
-        '/home/ubuntu/store/internal-neurips/hpo/valid',
+        Path(data_path) / 'valid',
         batch_size=8,
         target_size=(400, 300),
         class_mode='categorical',

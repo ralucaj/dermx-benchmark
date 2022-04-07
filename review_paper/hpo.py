@@ -26,17 +26,17 @@ zoom_ranges = [0.25, 0.5]
 brightness_ranges = [[0.25, 0.5], [0.5, 1], [0.25, 1]]
 learning_rates = [0.01, 0.001, 0.0001]
 
-for model in models:
+for model_settings in models:
     for rotation in rotation_ranges:
         for shear in shear_ranges:
             for zoom in zoom_ranges:
                 for brightness in brightness_ranges:
                     for lr in learning_rates:
-                        for last_fixed_layer in model.last_fixed_layers:
-                            model = unfreeze_layers(model, last_fixed_layer)
+                        for last_fixed_layer in model_settings['last_fixed_layers']:
+                            model = unfreeze_layers(model_settings['model'], last_fixed_layer)
                             try:
-                                model_name = train_model(model, model.model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, 64, model.preprocessing_function, model.base_path)
+                                model_name = train_model(model, model_settings['model_base_name'], rotation, shear, zoom, brightness, lr, last_fixed_layer, 64, model_settings['preprocessing_function'], model_settings['base_path'])
                             except ResourceExhaustedError:
                                 print('Using batch size 32')
-                                model_name = train_model(model, model.model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, 32, model.preprocessing_function, model.base_path)
-                            validate_model(model.base_path, model_name, model.preprocessing_function)
+                                model_name = train_model(model, model_settings['model_base_name'], rotation, shear, zoom, brightness, lr, last_fixed_layer, 32, model_settings['preprocessing_function'], model_settings['base_path'])
+                            validate_model(model_settings['base_path'], model_name, model_settings['preprocessing_function'])

@@ -143,7 +143,7 @@ def get_efficientnet_model():
 def validate_model(base_path, model_name, preprocessing_function, data_path):
     if os.path.exists(Path(base_path) / (model_name + '_preds.csv')):
         print(f'{model_name} already validated')
-        return
+        return model_name
 
     print('Now validating', model_name)
     valid_generator = ImageDataGenerator(

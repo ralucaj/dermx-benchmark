@@ -39,7 +39,8 @@ for model_settings in models:
                             model = unfreeze_layers(model_settings['model'], last_fixed_layer)
                             try:
                                 model_name = train_model(model, model_settings['model_base_name'], rotation, shear, zoom, brightness, lr, last_fixed_layer, 64, model_settings['preprocessing_function'], model_settings['base_path'], data_path)
+                                validate_model(model_settings['base_path'], model_name, model_settings['preprocessing_function'], data_path)
                             except ResourceExhaustedError:
                                 print('Using batch size 32')
                                 model_name = train_model(model, model_settings['model_base_name'], rotation, shear, zoom, brightness, lr, last_fixed_layer, 32, model_settings['preprocessing_function'], model_settings['base_path'], data_path)
-                            validate_model(model_settings['base_path'], model_name, model_settings['preprocessing_function'], data_path)
+                                validate_model(model_settings['base_path'], model_name, model_settings['preprocessing_function'], data_path)

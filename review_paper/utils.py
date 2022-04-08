@@ -4,8 +4,9 @@ from tensorflow.keras.optimizers import Adam
 from tensorflow.keras import Model
 from tensorflow.keras.models import load_model
 from tensorflow.keras.callbacks import CSVLogger, EarlyStopping
-from tensorflow.keras.applications import ResNet50, EfficientNetB0
-from tensorflow.keras.layers import GlobalAveragePooling2D, BatchNormalization, Dropout, Dense, Flatten
+from tensorflow.keras.applications import ResNet50, EfficientNetB0, InceptionResNetV2, InceptionV3, MobileNet, \
+    MobileNetV2, NASNetMobile, ResNet50V2, VGG16, Xception
+from tensorflow.keras.layers import GlobalAveragePooling2D, BatchNormalization, Dropout, Dense, Flatten, Reshape, Conv2D
 
 import numpy as np
 import pandas as pd
@@ -30,7 +31,6 @@ def calc_class_weights(train_iterator):
 
     # Fixed parameters
     class_counts = np.unique(train_iterator.classes, return_counts=True)
-    class_weights = []
     max_freq = max(class_counts[1])
     class_weights = [max_freq / count for count in class_counts[1]]
 
@@ -52,7 +52,8 @@ def unfreeze_layers(model, last_fixed_layer):
     return model
 
 
-def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, batch_size, preprocessing_function, base_path, data_path):
+def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, batch_size,
+                preprocessing_function, base_path, data_path, image_size):
     model_name = f'{model_base_name}_r{rotation}_s{shear}_z{zoom}_b{brightness}_lr{lr}_l{last_fixed_layer}'
     if os.path.exists(Path(base_path) / (model_name + '.h5')):
         print(f'{model_name} already trained')
@@ -71,7 +72,7 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
     )
     train_iterator = train_generator.flow_from_directory(
         Path(data_path) / 'train',
-        target_size=(400, 300),
+        target_size=image_size,
         class_mode='categorical',
         batch_size=batch_size,
         follow_links=True,
@@ -85,7 +86,7 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
     valid_iterator = valid_generator.flow_from_directory(
         Path(data_path) / 'valid',
         batch_size=batch_size,
-        target_size=(400, 300),
+        target_size=image_size,
         class_mode='categorical',
         follow_links=True,
         interpolation='bilinear',
@@ -119,15 +120,15 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
     return model_name
 
 
-def get_resnet_model():
-    base_model = ResNet50(include_top=False, weights='imagenet', input_shape=(400, 300, 3))
+def get_resnet_model(image_size):
+    base_model = ResNet50(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
     top_model = Flatten()(base_model.output)
     top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
     return Model(inputs=base_model.input, outputs=top_model, name="ResNet50")
 
 
-def get_efficientnet_model():
-    model = EfficientNetB0(include_top=False, input_shape=(400, 300, 3), weights="imagenet")
+def get_efficientnet_model(image_size):
+    model = EfficientNetB0(include_top=False, input_shape=(image_size[0], image_size[1], 3), weights="imagenet")
 
     # Rebuild top
     x = GlobalAveragePooling2D(name="avg_pool")(model.output)
@@ -140,7 +141,69 @@ def get_efficientnet_model():
     return Model(model.input, outputs, name="EfficientNetB0")
 
 
-def validate_model(base_path, model_name, preprocessing_function, data_path):
+def get_inceptionresnet_model(image_size):
+    base_model = InceptionResNetV2(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="InceptionResNetV2")
+
+
+def get_inception_model(image_size):
+    base_model = InceptionV3(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="InceptionV3")
+
+
+def get_mobilenetv1_model(image_size):
+    base_model = MobileNet(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+    top_model = Reshape((1, 1, 1024), name='reshape_1')(top_model)
+    top_model = Dropout(0.2, name='dropout')(top_model)
+    top_model = Conv2D(6, (1, 1), padding='same', name='conv_preds')(top_model)
+    top_model = Reshape((6,), name='reshape_2')(top_model)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="MobileNetV1")
+
+
+def get_mobilenetv2_model(image_size):
+    base_model = MobileNetV2(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="MobileNetV2")
+
+
+def get_nasnetmobile_model(image_size):
+    base_model = NASNetMobile(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="NASNetMobile")
+
+
+def get_resnetv2_model(image_size):
+    base_model = ResNet50V2(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="ResNetV2")
+
+
+def get_vgg_model(image_size):
+    base_model = VGG16(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = Flatten()(base_model.output)
+    top_model = Dense(4096, activation='relu')(top_model)
+    top_model = Dense(4096, activation='relu')(top_model)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="VGG")
+
+
+def get_xception_model(image_size):
+    base_model = Xception(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output)
+    top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="Xception")
+
+
+def validate_model(base_path, model_name, preprocessing_function, data_path, image_size):
     if os.path.exists(Path(base_path) / (model_name + '_preds.csv')):
         print(f'{model_name} already validated')
         return model_name
@@ -153,7 +216,7 @@ def validate_model(base_path, model_name, preprocessing_function, data_path):
     valid_iterator = valid_generator.flow_from_directory(
         Path(data_path) / 'valid',
         batch_size=8,
-        target_size=(400, 300),
+        target_size=image_size,
         class_mode='categorical',
         follow_links=True,
         interpolation='bilinear',

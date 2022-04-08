@@ -56,7 +56,7 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
     model_name = f'{model_base_name}_r{rotation}_s{shear}_z{zoom}_b{brightness}_lr{lr}_l{last_fixed_layer}'
     if os.path.exists(Path(base_path) / (model_name + '.h5')):
         print(f'{model_name} already trained')
-        return
+        return model_name
     print(f'Now training {model_name}')
 
     train_generator = ImageDataGenerator(

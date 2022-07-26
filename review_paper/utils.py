@@ -43,8 +43,10 @@ def calc_class_weights(train_iterator):
 
 def unfreeze_layers(model, last_fixed_layer):
     # Retrieve the index of the last fixed layer and add 1 so that it is also set to not trainable
-    first_trainable = model.layers.index(model.get_layer(last_fixed_layer)) + 1
-
+    try:
+        first_trainable = model.layers.index(model.get_layer(last_fixed_layer)) + 1
+    except:
+        model.summary()
     # Set which layers are trainable.
     for layer_idx, layer in enumerate(model.layers):
         if not isinstance(layer, BatchNormalization):
@@ -55,7 +57,7 @@ def unfreeze_layers(model, last_fixed_layer):
 def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, batch_size,
                 preprocessing_function, base_path, data_path, image_size):
     model_name = f'{model_base_name}_r{rotation}_s{shear}_z{zoom}_b{brightness}_lr{lr}_l{last_fixed_layer}'
-    if os.path.exists(Path(base_path) / (model_name + '.h5')):
+    if os.path.exists(Path(base_path) / (model_name + '_preds.csv')):
         print(f'{model_name} already trained')
         return model_name
     print(f'Now training {model_name}')
@@ -227,3 +229,4 @@ def validate_model(base_path, model_name, preprocessing_function, data_path, ima
     preds = [np.argmax(pred) for pred in model.predict(valid_iterator)]
     actual = valid_iterator.labels
     pd.DataFrame.from_dict({'actual': actual, 'pred': preds}).to_csv(Path(base_path) / (model_name + '_preds.csv'))
+    os.remove(Path(base_path) / (model_name + '.h5'))

@@ -55,8 +55,8 @@ def unfreeze_layers(model, last_fixed_layer):
 
 
 def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, batch_size,
-                preprocessing_function, base_path, data_path, image_size):
-    model_name = f'{model_base_name}_r{rotation}_s{shear}_z{zoom}_b{brightness}_lr{lr}_l{last_fixed_layer}'
+                preprocessing_function, base_path, data_path, image_size, name_suffix='', epochs=None):
+    model_name = f'{model_base_name}_r{rotation}_s{shear}_z{zoom}_b{brightness}_lr{lr}_l{last_fixed_layer}{name_suffix}'
     if os.path.exists(Path(base_path) / (model_name + '_preds.csv')):
         print(f'{model_name} already trained')
         return model_name
@@ -104,19 +104,21 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
         loss_weights=loss_weights,
     )
 
-    logger = CSVLogger(Path(base_path) / (model_name + '.csv'))
-    early_stopping = EarlyStopping(monitor='val_loss', min_delta=0.5, patience=5, verbose=1, mode='auto',
-                                   restore_best_weights=True)
-
+    callbacks = [CSVLogger(Path(base_path) / (model_name + '.csv'))]
+    if not epochs:
+         callbacks.append(EarlyStopping(monitor='val_loss', min_delta=0.5, patience=25, verbose=1, mode='auto',
+                                   restore_best_weights=True))
+    
+    
     model.fit(
         x=train_iterator,
         batch_size=batch_size,
-        epochs=100,
+        epochs=epochs,
         verbose=True,
         validation_data=valid_iterator,
         class_weight=dict(zip(range(6), loss_weights)),
         workers=8,
-        callbacks=[logger, early_stopping]
+        callbacks=callbacks
     )
     model.save(Path(base_path) / (model_name + '.h5'))
     return model_name
@@ -192,8 +194,8 @@ def get_resnetv2_model(image_size):
 def get_vgg_model(image_size):
     base_model = VGG16(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
     top_model = Flatten()(base_model.output)
-    top_model = Dense(4096, activation='relu')(top_model)
-    top_model = Dense(4096, activation='relu')(top_model)
+    #top_model = Dense(4096, activation='relu')(top_model)
+    #top_model = Dense(4096, activation='relu')(top_model)
     top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
     return Model(inputs=base_model.input, outputs=top_model, name="VGG")
 
@@ -205,8 +207,11 @@ def get_xception_model(image_size):
     return Model(inputs=base_model.input, outputs=top_model, name="Xception")
 
 
-def validate_model(base_path, model_name, preprocessing_function, data_path, image_size):
-    if os.path.exists(Path(base_path) / (model_name + '_preds.csv')):
+def validate_model(base_path, model_name, preprocessing_function, data_path, image_size, remove_weights=True, preds_path=None):
+    if not preds_path:
+        preds_path = Path(base_path) / (model_name + '_preds.csv')
+    print(preds_path)
+    if os.path.exists(preds_path):
         print(f'{model_name} already validated')
         return model_name
 
@@ -228,5 +233,6 @@ def validate_model(base_path, model_name, preprocessing_function, data_path, ima
     model = load_model(Path(base_path) / (model_name + '.h5'))
     preds = [np.argmax(pred) for pred in model.predict(valid_iterator)]
     actual = valid_iterator.labels
-    pd.DataFrame.from_dict({'actual': actual, 'pred': preds}).to_csv(Path(base_path) / (model_name + '_preds.csv'))
-    os.remove(Path(base_path) / (model_name + '.h5'))
+    pd.DataFrame.from_dict({'actual': actual, 'pred': preds}).to_csv(preds_path)
+    if remove_weights:
+        os.remove(Path(base_path) / (model_name + '.h5'))

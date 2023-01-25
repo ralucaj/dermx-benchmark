@@ -236,3 +236,43 @@ def validate_model(base_path, model_name, preprocessing_function, data_path, ima
     pd.DataFrame.from_dict({'actual': actual, 'pred': preds}).to_csv(preds_path)
     if remove_weights:
         os.remove(Path(base_path) / (model_name + '.h5'))
+
+        
+def test_model(base_path, model_name, preprocessing_function, data_path, image_size, preds_path=None):
+    if not preds_path:
+        preds_path = Path(base_path) / (model_name + '_preds.csv')
+    print(preds_path)
+#     if os.path.exists(preds_path):
+#         print(f'{model_name} already validated')
+#         return model_name
+
+    print('Now validating', model_name)
+    valid_generator = ImageDataGenerator(
+        fill_mode='nearest',
+        preprocessing_function=preprocessing_function
+    )
+    valid_iterator = valid_generator.flow_from_directory(
+        Path(data_path) / 'valid',
+        batch_size=8,
+        target_size=image_size,
+        class_mode='categorical',
+        follow_links=True,
+        interpolation='bilinear',
+        shuffle=False
+    )
+
+    model = load_model(Path(base_path) / (model_name + '.h5'))
+    preds = [np.argmax(pred) for pred in model.predict(valid_iterator)]
+    actual = valid_iterator.labels
+    filenames = valid_iterator.filenames
+    classes = {value: key for key, value in valid_iterator.class_indices.items()}
+    pred_classes = [classes[pred] for pred in preds]
+    actual_classes = [classes[dx] for dx in actual]
+    pd.DataFrame.from_dict({
+        'filename': filenames, 
+        'actual': actual, 
+        'pred': preds, 
+        'actual_class': actual_classes, 
+        'pred_class': pred_classes
+    }).to_csv(preds_path)
+    

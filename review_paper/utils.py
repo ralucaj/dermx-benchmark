@@ -207,7 +207,7 @@ def get_xception_model(image_size):
     return Model(inputs=base_model.input, outputs=top_model, name="Xception")
 
 
-def validate_model(base_path, model_name, preprocessing_function, data_path, image_size, remove_weights=True, preds_path=None):
+def validate_model(base_path, model_name, preprocessing_function, data_path, image_size, remove_weights=True, preds_path=None, valid_path='valid'):
     if not preds_path:
         preds_path = Path(base_path) / (model_name + '_preds.csv')
     print(preds_path)
@@ -221,7 +221,7 @@ def validate_model(base_path, model_name, preprocessing_function, data_path, ima
         preprocessing_function=preprocessing_function
     )
     valid_iterator = valid_generator.flow_from_directory(
-        Path(data_path) / 'valid',
+        Path(data_path) / valid_path,
         batch_size=8,
         target_size=image_size,
         class_mode='categorical',
@@ -238,7 +238,7 @@ def validate_model(base_path, model_name, preprocessing_function, data_path, ima
         os.remove(Path(base_path) / (model_name + '.h5'))
 
         
-def test_model(base_path, model_name, preprocessing_function, data_path, image_size, preds_path=None):
+def test_model(base_path, model_name, preprocessing_function, data_path, image_size, preds_path=None, valid_path='valid'):
     if not preds_path:
         preds_path = Path(base_path) / (model_name + '_preds.csv')
     print(preds_path)
@@ -252,7 +252,7 @@ def test_model(base_path, model_name, preprocessing_function, data_path, image_s
         preprocessing_function=preprocessing_function
     )
     valid_iterator = valid_generator.flow_from_directory(
-        Path(data_path) / 'valid',
+        Path(data_path) / valid_path,
         batch_size=8,
         target_size=image_size,
         class_mode='categorical',
@@ -276,3 +276,66 @@ def test_model(base_path, model_name, preprocessing_function, data_path, image_s
         'pred_class': pred_classes
     }).to_csv(preds_path)
     
+    
+def finetune_model(model, model_base_name, rotation, shear, zoom, brightness, lr, last_fixed_layer, batch_size,
+                preprocessing_function, base_path, data_path, image_size, name_suffix='', epochs=None):
+    
+    train_generator = ImageDataGenerator(
+        horizontal_flip=True,
+        vertical_flip=True,
+        rotation_range=rotation,
+        shear_range=shear,
+        zoom_range=zoom,
+        brightness_range=brightness,
+        fill_mode='nearest',
+        preprocessing_function=preprocessing_function,
+    )
+    train_iterator = train_generator.flow_from_directory(
+        Path(data_path) / 'train',
+        target_size=image_size,
+        class_mode='categorical',
+        batch_size=batch_size,
+        follow_links=True,
+        interpolation='bilinear',
+    )
+
+    valid_generator = ImageDataGenerator(
+        fill_mode='nearest',
+        preprocessing_function=resnet_preprocessing
+    )
+    valid_iterator = valid_generator.flow_from_directory(
+        Path(data_path) / 'test',
+        batch_size=batch_size,
+        target_size=image_size,
+        class_mode='categorical',
+        follow_links=True,
+        interpolation='bilinear',
+    )
+
+    loss_weights = calc_class_weights(train_iterator)
+
+    optimiser = Adam(lr=lr)
+    model.compile(
+        optimizer=optimiser,
+        loss='categorical_crossentropy',
+        metrics=['accuracy'],
+        loss_weights=loss_weights,
+    )
+
+    callbacks = [CSVLogger(Path(base_path) / (model_base_name + name_suffix + '.csv'))]
+    if not epochs:
+         callbacks.append(EarlyStopping(monitor='val_loss', min_delta=0.5, patience=25, verbose=1, mode='auto',
+                                   restore_best_weights=True))
+    
+    model.fit(
+        x=train_iterator,
+        batch_size=batch_size,
+        epochs=epochs,
+        verbose=True,
+        validation_data=valid_iterator,
+        class_weight=dict(zip(range(6), loss_weights)),
+        workers=8,
+        callbacks=callbacks
+    )
+    model.save(Path(base_path) / (model_base_name + name_suffix + '.h5'))
+    return model_base_name + name_suffix

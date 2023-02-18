@@ -5,7 +5,7 @@ from tensorflow.keras import Model
 from tensorflow.keras.models import load_model
 from tensorflow.keras.callbacks import CSVLogger, EarlyStopping
 from tensorflow.keras.applications import ResNet50, EfficientNetB0, InceptionResNetV2, InceptionV3, MobileNet, \
-    MobileNetV2, NASNetMobile, ResNet50V2, VGG16, Xception
+    MobileNetV2, NASNetMobile, ResNet50V2, VGG16, Xception, DenseNet121
 from tensorflow.keras.layers import GlobalAveragePooling2D, BatchNormalization, Dropout, Dense, Flatten, Reshape, Conv2D
 
 import numpy as np
@@ -106,7 +106,8 @@ def train_model(model, model_base_name, rotation, shear, zoom, brightness, lr, l
 
     callbacks = [CSVLogger(Path(base_path) / (model_name + '.csv'))]
     if not epochs:
-         callbacks.append(EarlyStopping(monitor='val_loss', min_delta=0.5, patience=25, verbose=1, mode='auto',
+        epochs = 100
+        callbacks.append(EarlyStopping(monitor='val_loss', min_delta=0.5, patience=25, verbose=1, mode='auto',
                                    restore_best_weights=True))
     
     
@@ -129,6 +130,13 @@ def get_resnet_model(image_size):
     top_model = Flatten()(base_model.output)
     top_model = Dense(6, activation='softmax', name='diagnosis')(top_model)
     return Model(inputs=base_model.input, outputs=top_model, name="ResNet50")
+
+
+def get_densenet_model(image_size):
+    base_model = DenseNet121(include_top=False, weights='imagenet', input_shape=(image_size[0], image_size[1], 3))
+    top_model = GlobalAveragePooling2D(name="avg_pool")(base_model.output) 
+    top_model = Dense(6, activation='softmax', name="predictions")(top_model)
+    return Model(inputs=base_model.input, outputs=top_model, name="DenseNet121")
 
 
 def get_efficientnet_model(image_size):
